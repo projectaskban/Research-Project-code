@@ -1,0 +1,162 @@
+# Load necessary libraries
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(GenomicRanges)
+library(Biostrings)
+library(rtracklayer)
+library(GenomicFeatures)
+library(genbankr)
+
+# Part 1: Genome Data Analysis
+
+# Load GFF3 file for annotation
+gff_file <- "path/to/ZMC13-88.gff3"
+zmc13_88_gff <- import(gff_file, format = "gff3")
+
+# Keyword search function
+search_keywords <- function(gff, keywords) {
+  results <- lapply(keywords, function(keyword) {
+    result <- gff[grepl(keyword, gff$gene, ignore.case = TRUE) |
+                  grepl(keyword, gff$Name, ignore.case = TRUE) |
+                  grepl(keyword, gff$description, ignore.case = TRUE) |
+                  grepl(keyword, gff$product, ignore.case = TRUE)]
+    if (length(result) > 0) {
+      return(result)
+    } else {
+      return(paste(keyword, "not found"))
+    }
+  })
+  return(results)
+}
+
+# List of keywords related to drug resistance
+drug_resistance_keywords <- c("resist", "drug", "anti", "rifampicin", "isoniazid", 
+                              "ethambutol", "pyrazinamide", "streptomycin", 
+                              "fluoroquinolone", "kanamycin", "efflux", "synthesis", "repair")
+
+# Search for each keyword
+keyword_results <- search_keywords(zmc13_88_gff, drug_resistance_keywords)
+
+# Print results
+for (i in 1:length(keyword_results)) {
+  cat("Results for keyword", drug_resistance_keywords[i], ":\n")
+  print(keyword_results[[i]])
+  cat("\n")
+}
+
+# Extract sequences function
+extract_sequence <- function(gff, fasta, gene_name) {
+  gene_pos <- gff[gff$gene == gene_name]
+  if (length(gene_pos) > 0) {
+    seqname <- unique(seqnames(gene_pos))
+    if (length(seqname) > 1) {
+      return(paste(gene_name, "has multiple sequence names, please verify"))
+    }
+    fasta_seq <- fasta[grepl(as.character(seqname), names(fasta))]
+    if (length(fasta_seq) == 0) {
+      return(paste("Sequence", as.character(seqname), "not found in FASTA file"))
+    }
+    unique_gene_pos <- unique(gene_pos)
+    valid_ranges <- which(start(unique_gene_pos) <= width(fasta_seq) & end(unique_gene_pos) <= width(fasta_seq))
+    if (length(valid_ranges) > 0) {
+      gene_seqs <- lapply(valid_ranges, function(i) {
+        subseq(fasta_seq, start = start(unique_gene_pos)[i], end = end(unique_gene_pos)[i])
+      })
+      combined_seq <- do.call(c, gene_seqs)
+      return(combined_seq)
+    } else {
+      return(paste(gene_name, "position out of range"))
+    }
+  } else {
+    return(paste(gene_name, "position not found"))
+  }
+}
+
+# Read the FASTA file
+fasta_file <- "path/to/ZMC13-88.fasta"
+zmc13_88_fasta <- readDNAStringSet(fasta_file)
+
+# Extract sequences for identified genes
+cobN_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "cobN")
+moaC_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "moaC")
+sdhA_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "sdhA")
+pstB_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "pstB")
+
+# Print the sequences
+cat("Sequence for cobN:\n")
+print(cobN_seq)
+cat("\nSequence for moaC:\n")
+print(moaC_seq)
+cat("\nSequence for sdhA:\n")
+print(sdhA_seq)
+cat("\nSequence for pstB:\n")
+print(pstB_seq)
+
+# Part 2: CDC Data Analysis
+
+# Load the CDC data
+CDC_data <- read_excel("path/to/CDC_data.xlsx", sheet = "CDC data")
+
+# Reshape the data to long format for easy plotting with ggplot2
+CDC_data_long <- CDC_data %>%
+  select(Year, `Treatment success rate for patients treated for MDR-TB (%)`, `Treatment success rate for new TB cases`) %>%
+  pivot_longer(cols = c(`Treatment success rate for patients treated for MDR-TB (%)`, `Treatment success rate for new TB cases`),
+               names_to = "Treatment_Type", values_to = "Success_Rate")
+
+# Plot the data
+ggplot(CDC_data_long, aes(x = Year, y = Success_Rate, color = Treatment_Type)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "Treatment Success Rates for New TB Cases and MDR-TB Patients",
+       x = "Year", y = "Treatment Success Rate (%)", color = "Treatment Type") +
+  theme_minimal()
+
+# Plot incident tuberculosis cases
+ggplot(CDC_data, aes(x = Year, y = `Number of incident tuberculosis cases`)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Trend of Incident Tuberculosis Cases Over Time",
+       x = "Year", y = "Number of Incident Tuberculosis Cases")
+
+# Plot tuberculosis-related deaths
+ggplot(CDC_data, aes(x = Year, y = `Number of deaths due to tuberculosis, excluding HIV`)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Trend of Tuberculosis-related Deaths Over Time",
+       x = "Year", y = "Number of Deaths")
+
+# Correlation plot
+ggplot(CDC_data, aes(x = `Treatment success rate for patients treated for MDR-TB (%)`, y = `Confirmed cases of RR-/MDR-TB`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Correlation Between Treatment Success Rate and Confirmed Drug-Resistant TB Cases",
+       x = "Treatment Success Rate for MDR-TB (%)", y = "Confirmed RR/MDR TB Cases")
+
+# Histogram of treatment success rates
+ggplot(CDC_data, aes(x = `Treatment success rate for patients treated for MDR-TB (%)`)) +
+  geom_histogram(binwidth = 5) +
+  labs(title = "Distribution of Treatment Success Rates for MDR-TB",
+       x = "Treatment Success Rate for MDR-TB (%)", y = "Frequency")
+
+# Trend of treatment success rates for MDR-TB cases
+ggplot(CDC_data, aes(x = Year, y = `Treatment success rate for patients treated for MDR-TB (%)`)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Trend of Treatment Success Rates for MDR-TB Cases Over Time",
+       x = "Year", y = "Treatment Success Rate for MDR-TB (%)")
+
+# Trend of treatment success rates for new TB cases
+ggplot(CDC_data, aes(x = Year, y = `Treatment success rate for new TB cases`)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Trend of Treatment Success Rates for New TB Cases Over Time",
+       x = "Year", y = "Treatment Success Rate for New TB Cases")
+
+# Scatter plot of treatment coverage vs. incident TB cases
+ggplot(CDC_data, aes(x = `Tuberculosis treatment coverage`, y = `Number of incident tuberculosis cases`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Treatment Coverage vs. Number of Incident TB Cases",
+       x = "Tuberculosis Treatment Coverage (%)", y = "Number of Incident Tuberculosis Cases")
