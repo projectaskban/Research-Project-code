@@ -1,0 +1,146 @@
+# Load necessary libraries
+library(readxl)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(forecast)
+
+# Load the CDC data
+CDC_data <- read_excel("CDC data.xlsx", sheet = "CDC data")
+
+# Filter out rows with missing values in the relevant columns for TB-related deaths
+CDC_data_filtered_deaths <- CDC_data %>%
+  filter(!is.na(`Number of deaths due to tuberculosis, excluding HIV`)) %>%
+  filter(`Number of deaths due to tuberculosis, excluding HIV` >= 0)
+
+# Fit a generalized linear model with a log link function
+model <- glm(
+  formula = `Number of deaths due to tuberculosis, excluding HIV` ~ Year,
+  data = CDC_data_filtered_deaths,
+  family = gaussian(link = "log")
+)
+
+# Calculate the rate of change at different time points
+time_points <- range(CDC_data_filtered_deaths$Year)
+rates_of_change <- coef(model)[2] * exp(coef(model)[1] + coef(model)[2] * time_points)
+
+# Print the rates of change
+cat("Rate of change at the start:", rates_of_change[1], "\n")
+cat("Rate of change at the end:", rates_of_change[2], "\n")
+
+# Calculate the percentage decrease in the rate of change
+percent_decrease <- (rates_of_change[2] - rates_of_change[1]) / rates_of_change[1] * 100
+cat("Percentage decrease in the rate of change:", percent_decrease, "%\n")
+
+# Trend of TB-related deaths with the fitted model
+ggplot(CDC_data_filtered_deaths, aes(x = Year, y = `Number of deaths due to tuberculosis, excluding HIV`)) +
+  geom_point() +
+  geom_line(data = data.frame(Year = time_points), 
+            aes(y = exp(predict(model, newdata = data.frame(Year = time_points)))), 
+            color = "red") +
+  labs(title = "Trend of Tuberculosis-related Deaths Over Time (with Fitted Model)",
+       x = "Year",
+       y = "Number of Deaths")
+
+# Filter out rows with missing values in the relevant columns for correlation plot
+CDC_data_filtered_correlation <- CDC_data %>%
+  filter(!is.na(`Treatment success rate for patients treated for MDR-TB (%)`)) %>%
+  filter(!is.na(`Confirmed cases of RR-/MDR-TB`)) %>%
+  filter(`Confirmed cases of RR-/MDR-TB` >= 0)
+
+# Correlation plot
+ggplot(CDC_data_filtered_correlation, aes(x = `Treatment success rate for patients treated for MDR-TB (%)`, y = `Confirmed cases of RR-/MDR-TB`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Correlation Between Treatment Success Rate and Confirmed Drug-Resistant TB Cases",
+       x = "Treatment Success Rate for MDR-TB (%)",
+       y = "Confirmed RR/MDR TB Cases")
+
+# Histogram of treatment success rates
+ggplot(CDC_data_filtered_correlation, aes(x = `Treatment success rate for patients treated for MDR-TB (%)`)) +
+  geom_histogram(binwidth = 5) +
+  labs(title = "Distribution of Treatment Success Rates for MDR-TB",
+       x = "Treatment Success Rate for MDR-TB (%)",
+       y = "Frequency")
+
+# Filter out rows with missing or negative values in the relevant columns
+CDC_data_filtered <- CDC_data %>%
+  filter(!is.na(`Confirmed cases of RR-/MDR-TB`)) %>%
+  filter(`Confirmed cases of RR-/MDR-TB` >= 0)
+
+# Time series analysis and forecasting
+resistance_ts <- ts(CDC_data_filtered$`Confirmed cases of RR-/MDR-TB`, start = min(CDC_data_filtered$Year), end = max(CDC_data_filtered$Year), frequency = 1)
+model <- auto.arima(resistance_ts)
+resistance_forecast <- forecast(model, h = 5)
+
+# Plot the forecast
+autoplot(resistance_forecast) +
+  labs(title = "Forecasting Drug Resistance Rates",
+       x = "Year",
+       y = "Confirmed cases of RR-/MDR-TB")
+
+# Model diagnostics
+checkresiduals(model)
+
+# Reshape the data to long format for easier plotting with ggplot2
+CDC_data_long <- CDC_data_filtered %>%
+  select(Year, `Treatment success rate for patients treated for MDR-TB (%)`, `Treatment success rate: new TB cases`) %>%
+  pivot_longer(cols = c(`Treatment success rate for patients treated for MDR-TB (%)`, `Treatment success rate: new TB cases`),
+               names_to = "Treatment_Type", values_to = "Success_Rate")
+
+# Plot the data
+ggplot(CDC_data_long, aes(x = Year, y = Success_Rate, color = Treatment_Type)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "Treatment Success Rates for New TB Cases and MDR-TB Patients",
+       x = "Year",
+       y = "Treatment Success Rate (%)",
+       color = "Treatment Type") +
+  theme_minimal()
+
+# Filter out rows with missing values in the relevant columns for incident TB cases
+CDC_data_filtered_incident <- CDC_data %>%
+  filter(!is.na(`Number of incident tuberculosis cases`)) %>%
+  filter(`Number of incident tuberculosis cases` >= 0)
+
+# Trend of incident tuberculosis cases
+ggplot(CDC_data_filtered_incident, aes(x = Year, y = `Number of incident tuberculosis cases`)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Trend of Incident Tuberculosis Cases Over Time",
+       x = "Year",
+       y = "Number of Incident Tuberculosis Cases")
+
+# Filter out rows with missing values in the relevant columns for scatter plot
+CDC_data_filtered_coverage <- CDC_data %>%
+  filter(!is.na(`Tuberculosis treatment coverage`)) %>%
+  filter(!is.na(`Number of incident tuberculosis cases`)) %>%
+  filter(`Number of incident tuberculosis cases` >= 0)
+
+# Scatter plot of treatment coverage vs. incident TB cases
+ggplot(CDC_data_filtered_coverage, aes(x = `Tuberculosis treatment coverage`, y = `Number of incident tuberculosis cases`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Treatment Coverage vs. Number of Incident TB Cases",
+       x = "Tuberculosis Treatment Coverage (%)",
+       y = "Number of Incident Tuberculosis Cases")
+
+# Filter out rows with missing values in the relevant columns for stacked area chart
+CDC_data_filtered_proportion <- CDC_data %>%
+  filter(!is.na(`Confirmed cases of RR-/MDR-TB`)) %>%
+  filter(!is.na(`Number of incident tuberculosis cases`)) %>%
+  filter(`Confirmed cases of RR-/MDR-TB` >= 0)
+
+# Stacked area chart for proportion of drug-resistant cases
+CDC_data_long2 <- CDC_data_filtered_proportion %>%
+  select(Year, `Confirmed cases of RR-/MDR-TB`, `Number of incident tuberculosis cases`) %>%
+  pivot_longer(cols = c(`Confirmed cases of RR-/MDR-TB`, `Number of incident tuberculosis cases`),
+               names_to = "Case_Type", values_to = "Cases")
+
+ggplot(CDC_data_long2, aes(x = Year, y = Cases, fill = Case_Type)) +
+  geom_area(position = "fill") +
+  labs(title = "Proportion of Drug-Resistant TB Cases",
+       x = "Year",
+       y = "Proportion",
+       fill = "Case Type") +
+  theme_minimal()
