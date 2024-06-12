@@ -1,0 +1,81 @@
+library(Biostrings)
+library(GenomicRanges)
+library(rtracklayer)
+library(GenomicFeatures)
+library(genbankr)
+
+# Function to extract sequences without duplicates
+extract_sequence <- function(gff, fasta, gene_name) {
+    gene_pos <- gff[gff$gene == gene_name]
+    if (length(gene_pos) > 0) {
+        # Ensure the sequence names match
+        seqname <- unique(seqnames(gene_pos))
+        if (length(seqname) > 1) {
+            return(paste(gene_name, "has multiple sequence names, please verify"))
+        }
+        
+        # Find the correct sequence in the FASTA file
+        fasta_seq <- fasta[grepl(as.character(seqname), names(fasta))]
+        
+        if (length(fasta_seq) == 0) {
+            return(paste("Sequence", as.character(seqname), "not found in FASTA file"))
+        }
+        
+        # Remove duplicate ranges
+        unique_gene_pos <- unique(gene_pos)
+        
+        # Debugging: Print the sequence names and lengths
+        cat("Sequence name in GFF3:", as.character(seqname), "\n")
+        cat("Corresponding sequence length in FASTA:", width(fasta_seq), "\n")
+        
+        # Debugging: Print the start and end positions
+        cat("Start positions for", gene_name, ":\n")
+        print(start(unique_gene_pos))
+        cat("End positions for", gene_name, ":\n")
+        print(end(unique_gene_pos))
+        
+        # Ensure start and end are within range and valid
+        valid_ranges <- which(start(unique_gene_pos) <= width(fasta_seq) & end(unique_gene_pos) <= width(fasta_seq))
+        
+        if (length(valid_ranges) > 0) {
+            # Extract sequences for valid ranges
+            gene_seqs <- lapply(valid_ranges, function(i) {
+                cat("Extracting sequence for range", i, ": start =", start(unique_gene_pos)[i], "end =", end(unique_gene_pos)[i], "\n")
+                subseq(fasta_seq, start = start(unique_gene_pos)[i], end = end(unique_gene_pos)[i])
+            })
+            
+            # Combine the sequences if there are multiple ranges
+            combined_seq <- do.call(c, gene_seqs)
+            return(combined_seq)
+        } else {
+            return(paste(gene_name, "position out of range"))
+        }
+    } else {
+        return(paste(gene_name, "position not found"))
+    }
+}
+
+# Read the FASTA file
+fasta_file <- "C:/Users/david/Documents/Uni stuff/Research project/ZMC13-88.fasta"
+zmc13_88_fasta <- readDNAStringSet(fasta_file)
+
+# Print sequence names and lengths in the FASTA file
+cat("Sequence names and lengths in the FASTA file:\n")
+print(names(zmc13_88_fasta))
+print(width(zmc13_88_fasta))
+
+# Extract sequences for cobN, moaC, sdhA, and pstB
+cobN_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "cobN")
+moaC_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "moaC")
+sdhA_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "sdhA")
+pstB_seq <- extract_sequence(zmc13_88_gff, zmc13_88_fasta, "pstB")
+
+# Print the sequences
+cat("Sequence for cobN:\n")
+print(cobN_seq)
+cat("\nSequence for moaC:\n")
+print(moaC_seq)
+cat("\nSequence for sdhA:\n")
+print(sdhA_seq)
+cat("\nSequence for pstB:\n")
+print(pstB_seq)
